@@ -14,7 +14,7 @@ from swebench.metrics.report import get_model_report
 from dump import dump  # noqa: F401
 from tests import remove_patches_to_tests, run_tests
 from utils import (
-    FULL_DATASET_FNAME,
+    LITE_DATASET_FNAME,
     choose_predictions,
     get_dataset,
     get_devin_instance_ids,
@@ -128,17 +128,17 @@ def run_evals_on_dname(dname):
     predictions_jsonl = preds_to_jsonl(dname, predictions)
     dump(predictions_jsonl)
 
-    log_dir = Path("logs") / dname.name
+    log_dir = Path("logs") / "codebuff" / dname.name
     log_dir.mkdir(exist_ok=True, parents=True)
     dump(log_dir)
 
     any_need_evals = any("resolved" not in pred for pred in predictions.values())
     any_need_evals = True
     if any_need_evals:
-        run_evals(FULL_DATASET_FNAME, str(log_dir), predictions_jsonl)
+        run_evals(LITE_DATASET_FNAME, str(log_dir), predictions_jsonl)
 
         model_name_or_path = list(predictions.values())[0]["model_name_or_path"]
-        report = get_report(FULL_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path)
+        report = get_report(LITE_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path)
         predictions = update_pred_json(predictions, report)
 
     return predictions_jsonl, log_dir
@@ -177,6 +177,7 @@ def main():
     # Run with a set of prediction directories, in order of priority.
     # Plausible solution found in the earliest directory will be selected.
     dnames = sys.argv[1:]
+    base_path = dnames[0]
 
     # Make sure evals have been completed on all instances in all supplied
     # predictions dirs.
@@ -190,13 +191,14 @@ def main():
     # and copies over all markdown chat transcripts.
     model_name_or_path = "lite-multi"
 
-    preds_dir = Path("predictions") / model_name_or_path
+    preds_dir = Path(base_path) / model_name_or_path 
+    
     old(preds_dir)
     preds_dir.mkdir(exist_ok=True)
 
     # Choose the 1st plausible pred or use the fallback logic for least bad pred
     predictions = choose_predictions(
-        dnames, model_name_or_path, copy_md=True, devin_only=(using_dataset == "devin")
+        dnames, model_name_or_path, copy_md=False, devin_only=(using_dataset == "devin")
     )
     if not predictions:
         print("No predictions")
@@ -204,9 +206,11 @@ def main():
 
     dump(len(predictions))
 
-    predictions_jsonl, log_dir = combine_jsonl_logs(predictions, model_name_or_path)
-    report = get_report(FULL_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path)
-    results_json = Path("predictions") / model_name_or_path / "results.json"
+    print(base_path.split("/")[1:])
+    predictions_jsonl, log_dir = combine_jsonl_logs(predictions, '/'.join(base_path.split("/")[1:]))
+    print(predictions_jsonl, log_dir)
+    report = get_report(LITE_DATASET_FNAME, log_dir, predictions_jsonl, model_name_or_path)
+    results_json = preds_dir / "results.json"
     results_json.write_text(json.dumps(report, indent=4))
 
     # Show the key stats on how many instances are resolved, etc
@@ -264,7 +268,7 @@ def main():
         elif using_dataset == "lite":
             num_instances = 300
         else:
-            num_instances = len(json.load(open(FULL_DATASET_FNAME)))
+            num_instances = len(json.load(open(LITE_DATASET_FNAME)))
 
         expected_cost = num_instances * avg_cost
         print(f"expected_cost: ${expected_cost:.2f}")
